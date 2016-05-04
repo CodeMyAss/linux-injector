@@ -27,16 +27,12 @@ static int
 _save_state(int pid)
 {
   if (!target_state) {
-    CHECK((target_state = calloc(1, sizeof(struct pstate) + MAX_CODE_SIZE - 1)),
-	  "Memory allocation error");
+    CHECK((target_state = calloc(1, sizeof(struct pstate) + MAX_CODE_SIZE - 1)), "Memory allocation error");
     target_state->mem_len = MAX_CODE_SIZE;
   }
-  CHECK(ptrace_getregs(pid, &target_state->regs),
-	"Failed to get registers of target process");
+  CHECK(ptrace_getregs(pid, &target_state->regs), "Failed to get registers of target process");
   dprintf("Saved registers");
-  CHECK(ptrace_readmem(pid, (void*)EIP(&target_state->regs), target_state->mem, target_state->mem_len),
-	"Failed to read %ld bytes of memory at target process instruction pointer",
-	target_state->mem_len);
+  CHECK(ptrace_readmem(pid, (void*)EIP(&target_state->regs), target_state->mem, target_state->mem_len), "Failed to read %ld bytes of memory at target process instruction pointer", target_state->mem_len);
   dprintf("Saved %ld bytes from EIP %p", target_state->mem_len, target_state->mem);
   return 1;
 error:
@@ -47,12 +43,9 @@ static int
 _restore_state(int pid)
 {
   if (!target_state) return 1;
-  CHECK(ptrace_setregs(pid, &target_state->regs),
-	"Failed to set registers of target process");
+  CHECK(ptrace_setregs(pid, &target_state->regs), "Failed to set registers of target process");
   dprintf("Restored registers");
-  CHECK(ptrace_writemem(pid, (void*)EIP(&target_state->regs), target_state->mem, target_state->mem_len),
-	"Failed to write %ld bytes of memory to target process instruction pointer",
-	target_state->mem_len);
+  CHECK(ptrace_writemem(pid, (void*)EIP(&target_state->regs), target_state->mem, target_state->mem_len), "Failed to write %ld bytes of memory to target process instruction pointer", target_state->mem_len);
   dprintf("Restored %ld bytes to EIP %p", target_state->mem_len, target_state->mem);
   free(target_state);
   target_state = NULL;
@@ -66,8 +59,7 @@ _wait_trap(int pid)
 {
   int status = 0;
   while(1) {
-    CHECK(waitpid(pid, &status, 0) != -1,
-	  "waitpid error");
+    CHECK(waitpid(pid, &status, 0) != -1, "waitpid error");
     
     if (WIFSTOPPED(status)) {
       dprintf("Process stopped with signal %d", WSTOPSIG(status));
@@ -146,15 +138,13 @@ _mmap_data(int pid, size_t len, void *base_address, int protections, int flags, 
   dprintf("Mmap() finished execution");
   
   // get return value from mmap()
-  CHECK(ptrace_getregs(pid, &regs),
-	"Failed to get registers of target process");
+  CHECK(ptrace_getregs(pid, &regs), "Failed to get registers of target process");
   *out = (void*)EAX(&regs);
   dprintf("Mmap() returned %p", *out);
   CHECK(*out != MAP_FAILED, "Mmap() returned error");
   
   // restore registers
-  CHECK(ptrace_setregs(pid, &orig_regs),
-	"Failed to restore registers of target process");
+  CHECK(ptrace_setregs(pid, &orig_regs), "Failed to restore registers of target process");
   dprintf("Restored registers of target process");
   
   ret = 1;
@@ -185,8 +175,7 @@ _launch_payload(int pid, void *code_cave, size_t code_cave_size, void *stack_add
   
   // get current registers
   struct user_regs_struct regs = {0};
-  CHECK(ptrace_getregs(pid, &regs),
-	"Failed to get registers of target process");
+  CHECK(ptrace_getregs(pid, &regs), "Failed to get registers of target process");
   
   // put our arguments in the proper registers (see clone{64,32}.asm)
 #ifdef __i386__
@@ -208,21 +197,18 @@ _launch_payload(int pid, void *code_cave, size_t code_cave_size, void *stack_add
 #endif
   // move EIP to our code cave
   EIP(&regs) = ADDR2INT(code_cave);
-  CHECK(ptrace_setregs(pid, &regs),
-	"Failed to set registers of target process");
+  CHECK(ptrace_setregs(pid, &regs), "Failed to set registers of target process");
   dprintf("Wrote our shellcode parameters into process registers. EIP: %p", code_cave);
   
   // write shellcode to target process code cave
-  CHECK(ptrace_writemem(pid, code_cave, shellcode, code_cave_size),
-	"Failed to write clone trampoline code to target process");
+  CHECK(ptrace_writemem(pid, code_cave, shellcode, code_cave_size), "Failed to write clone trampoline code to target process");
   dprintf("Wrote clone trampoline code to address %p", code_cave);
   
   // run shellcode and check return value
   CHECK(ptrace_continue(pid, code_cave), "Failed to execute clone trampoline code");
   CHECK(_wait_trap(pid), "Error waiting for interrupt");
   dprintf("Clone() finished execution");
-  CHECK(ptrace_getregs(pid, &regs),
-	"Failed to get registers of target process");
+  CHECK(ptrace_getregs(pid, &regs), "Failed to get registers of target process");
   dprintf("New thread ID: %lld", EAX(&regs));
   CHECK((int)EAX(&regs) != -1, "Clone() returned error");
   
@@ -276,30 +262,25 @@ inject_code(int pid, unsigned char *payload, size_t payload_len)
   dprintf("Saved state of target process");
   
   // allocate payload space
-  CHECK(_mmap_data(pid, payload_size, NULL, 0, 0, &payload_addr),
-	"Failed to allocate space for payload");
+  CHECK(_mmap_data(pid, payload_size, NULL, 0, 0, &payload_addr), "Failed to allocate space for payload");
   dprintf("Allocated space for payload at location %p", payload_addr);
 
   // copy payload
-  CHECK(ptrace_writemem(pid, payload_addr, payload_aligned, payload_size),
-	"Failed to copy payload to target process");
+  CHECK(ptrace_writemem(pid, payload_addr, payload_aligned, payload_size), "Failed to copy payload to target process");
   dprintf("Wrote payload to target process at address %p", payload_addr);
   
   // allocate new stack
-  CHECK(_mmap_data(pid, STACK_SIZE, NULL, 0, 0, &stack),
-	"Failed to allocate space for new stack");
+  CHECK(_mmap_data(pid, STACK_SIZE, NULL, 0, 0, &stack), "Failed to allocate space for new stack");
   stack += STACK_SIZE; // use top address as stack base, since stack grows downward
   dprintf("Allocated new stack at location %p", stack);
   
   // allocate space for code cave
-  CHECK(_mmap_data(pid, MAX_CODE_SIZE, NULL, 0, 0, &code_cave),
-	"Failed to allocate space for code cave");
+  CHECK(_mmap_data(pid, MAX_CODE_SIZE, NULL, 0, 0, &code_cave), "Failed to allocate space for code cave");
   dprintf("Allocated space for code cave at location %p", code_cave);
   
   // launch payload via clone(2)
   dprintf("Launching payload in new thread");
-  CHECK(_launch_payload(pid, code_cave, MAX_CODE_SIZE, stack, STACK_SIZE, payload_addr, payload_size, NULL, 0),
-	"Failed to launch payload");
+  CHECK(_launch_payload(pid, code_cave, MAX_CODE_SIZE, stack, STACK_SIZE, payload_addr, payload_size, NULL, 0), "Failed to launch payload");
   
   ret = 1;
 error:
